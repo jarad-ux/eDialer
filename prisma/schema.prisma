@@ -1,0 +1,253 @@
+// eDialer Prisma Schema
+// AI-powered dialer with Retell + Twilio integration
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  role          UserRole  @default(AGENT)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  calls         Call[]
+  campaigns     Campaign[]
+  contacts      Contact[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  AGENT
+}
+
+// ============================================
+// CONTACTS
+// ============================================
+
+model Contact {
+  id            String        @id @default(cuid())
+  firstName     String
+  lastName      String
+  phone         String
+  email         String?
+  company       String?
+  title         String?
+  address       String?
+  city          String?
+  state         String?
+  zip           String?
+  notes         String?
+  status        ContactStatus @default(NEW)
+  source        String?
+  tags          String[]
+  customFields  Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  calls         Call[]
+  campaignContacts CampaignContact[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([status])
+  @@map("contacts")
+}
+
+enum ContactStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+  DO_NOT_CALL
+}
+
+// ============================================
+// CALLS
+// ============================================
+
+model Call {
+  id              String      @id @default(cuid())
+  callSid         String?     @unique // Twilio Call SID
+  retellCallId    String?     @unique // Retell Call ID
+  direction       CallDirection
+  status          CallStatus  @default(INITIATED)
+  fromNumber      String
+  toNumber        String
+  duration        Int?        // Duration in seconds
+  startedAt       DateTime?
+  endedAt         DateTime?
+  recordingUrl    String?
+  transcriptUrl   String?
+  transcript      String?
+  summary         String?
+  sentiment       String?
+  outcome         CallOutcome?
+  notes           String?
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  contactId       String?
+  contact         Contact?    @relation(fields: [contactId], references: [id])
+  campaignId      String?
+  campaign        Campaign?   @relation(fields: [campaignId], references: [id])
+
+  @@index([callSid])
+  @@index([retellCallId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("calls")
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  BUSY
+  NO_ANSWER
+  CANCELED
+}
+
+enum CallOutcome {
+  INTERESTED
+  NOT_INTERESTED
+  CALLBACK_REQUESTED
+  VOICEMAIL
+  WRONG_NUMBER
+  DO_NOT_CALL
+  APPOINTMENT_SET
+  SALE_MADE
+  OTHER
+}
+
+// ============================================
+// CAMPAIGNS
+// ============================================
+
+model Campaign {
+  id              String          @id @default(cuid())
+  name            String
+  description     String?
+  status          CampaignStatus  @default(DRAFT)
+  type            CampaignType    @default(OUTBOUND)
+  retellAgentId   String?
+  script          String?
+  startDate       DateTime?
+  endDate         DateTime?
+  settings        Json?
+  stats           Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  calls           Call[]
+  campaignContacts CampaignContact[]
+
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum CampaignType {
+  OUTBOUND
+  INBOUND
+  BLENDED
+}
+
+model CampaignContact {
+  id          String              @id @default(cuid())
+  status      CampaignContactStatus @default(PENDING)
+  attempts    Int                 @default(0)
+  lastAttempt DateTime?
+  scheduledAt DateTime?
+  priority    Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  // Relations
+  campaignId  String
+  campaign    Campaign            @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@map("campaign_contacts")
+}
+
+enum CampaignContactStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+// ============================================
+// SYSTEM & LOGS
+// ============================================
+
+model WebhookLog {
+  id          String    @id @default(cuid())
+  source      String    // "twilio", "retell", etc.
+  eventType   String
+  payload     Json
+  status      String    @default("received")
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([source, eventType])
+  @@index([createdAt])
+  @@map("webhook_logs")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
