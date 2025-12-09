@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
-    const payload = Object.fromEntries(formData.entries())
+    const entries = Object.fromEntries(formData.entries())
+    // Convert FormData entries to JSON-safe object
+    const payload: Record<string, string> = {}
+    for (const [key, value] of Object.entries(entries)) {
+      payload[key] = String(value)
+    }
 
     // Log the webhook
     await prisma.webhookLog.create({
       data: {
         source: 'twilio',
-        eventType: (payload.CallStatus as string) || 'status_callback',
-        payload: payload as Record<string, unknown>,
+        eventType: payload.CallStatus || 'status_callback',
+        payload: payload as unknown as Prisma.InputJsonValue,
       },
     })
 
-    const callSid = payload.CallSid as string
-    const callStatus = payload.CallStatus as string
+    const callSid = payload.CallSid
+    const callStatus = payload.CallStatus
 
     if (callSid && callStatus) {
       const statusMap: Record<string, string> = {
@@ -38,7 +44,7 @@ export async function POST(request: NextRequest) {
           status: status as 'INITIATED' | 'RINGING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'BUSY' | 'NO_ANSWER' | 'CANCELED',
           ...(callStatus === 'completed' && {
             endedAt: new Date(),
-            duration: parseInt(payload.CallDuration as string) || undefined,
+            duration: payload.CallDuration ? parseInt(payload.CallDuration) : undefined,
           }),
         },
       })
